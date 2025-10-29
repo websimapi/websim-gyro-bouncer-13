@@ -37,6 +37,9 @@ const AVATAR_CACHE_KEY = 'gyroBouncerAvatarCache';
 async function preload() {
     uiState('loading');
     loadingStatus.textContent = 'Initializing...';
+    let finalLoadingMessage = '';
+    let fromCache = false;
+
     try {
         loadingStatus.textContent = 'Connecting to server...';
         const room = new WebsimSocket();
@@ -47,18 +50,31 @@ async function preload() {
             const cachedAvatar = JSON.parse(localStorage.getItem(AVATAR_CACHE_KEY));
             if (cachedAvatar && cachedAvatar.url === client.avatarUrl) {
                 console.log("Loading avatar from cache.");
+                fromCache = true;
                 loadingStatus.textContent = 'Loading avatar from local cache...';
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 userAvatarImg = await loadImageFromDataURL(cachedAvatar.dataUrl);
+                finalLoadingMessage = 'Avatar loaded from cache.';
             } else {
                 console.log("Fetching new avatar.");
                 loadingStatus.textContent = 'Fetching your avatar...';
-                const fetchedImg = await loadImageWithProxies(client.avatarUrl);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const { image: fetchedImg, source } = await loadImageWithProxies(client.avatarUrl);
                 if (fetchedImg) {
                     userAvatarImg = fetchedImg;
+                    if (source === 'Direct') {
+                        finalLoadingMessage = 'Avatar loaded directly.';
+                    } else if (source.startsWith('CORS Proxy')) {
+                        finalLoadingMessage = `Avatar loaded via ${source}.`;
+                    }
+                    loadingStatus.textContent = finalLoadingMessage;
+                    await new Promise(resolve => setTimeout(resolve, 1500)); // Show message
+
                     loadingStatus.textContent = 'Caching avatar for next time...';
                     const dataUrl = imageToDataURL(userAvatarImg);
                     localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify({ url: client.avatarUrl, dataUrl }));
                     console.log("Avatar cached.");
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 } else {
                     avatarLoadFailed = true;
                 }
@@ -69,7 +85,7 @@ async function preload() {
                 loadingStatus.textContent = 'Your avatar could not be loaded.';
                 alert("Your avatar could not be loaded. Please try again or check your profile picture.");
             } else {
-                loadingStatus.textContent = 'Avatar loaded successfully!';
+                loadingStatus.textContent = finalLoadingMessage;
             }
         } else {
             avatarLoadFailed = true;
@@ -85,7 +101,8 @@ async function preload() {
     
     if (!avatarLoadFailed) {
         // give a small delay for user to read final message
-        await new Promise(resolve => setTimeout(resolve, 500));
+        loadingStatus.textContent += ' Ready!';
+        await new Promise(resolve => setTimeout(resolve, 1500));
     }
     
     uiState('start');
@@ -134,13 +151,13 @@ function loadImageFromDataURL(dataUrl) {
 
 async function loadImageWithProxies(url) {
     const proxies = [
-        '', // Direct attempt first
-        'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?',
+        { name: 'Direct', url: '' },
+        { name: 'CORS Proxy 1', url: 'https://api.allorigins.win/raw?url=' },
+        { name: 'CORS Proxy 2', url: 'https://corsproxy.io/?' },
     ];
 
     for (const proxy of proxies) {
-        const proxyUrl = proxy + url;
+        const proxyUrl = proxy.url + url;
         try {
             const img = new Image();
             img.crossOrigin = "anonymous"; // Always set for cross-origin images to prevent canvas tainting
@@ -150,12 +167,12 @@ async function loadImageWithProxies(url) {
                 img.src = proxyUrl;
             });
             console.log(`Successfully loaded image from: ${proxyUrl}`);
-            return img;
+            return { image: img, source: proxy.name };
         } catch (error) {
             console.warn(`Failed to load image from: ${proxyUrl}`, error);
         }
     }
-    return null;
+    return { image: null, source: 'failed' };
 }
 
 async function init() {
