@@ -9,6 +9,7 @@ const replayCanvas = document.getElementById('replay-canvas');
 const replayCtx = replayCanvas.getContext('2d');
 
 const loadingScreen = document.getElementById('loading-screen');
+const loadingStatus = document.getElementById('loading-status');
 const startScreen = document.getElementById('start-screen');
 const gameOverScreen = document.getElementById('game-over-screen');
 const startButton = document.getElementById('start-button');
@@ -35,20 +36,26 @@ const AVATAR_CACHE_KEY = 'gyroBouncerAvatarCache';
 
 async function preload() {
     uiState('loading');
+    loadingStatus.textContent = 'Initializing...';
     try {
+        loadingStatus.textContent = 'Connecting to server...';
         const room = new WebsimSocket();
         await room.initialize();
         const client = room.peers[room.clientId];
         if (client && client.avatarUrl) {
+            loadingStatus.textContent = 'Profile found. Checking for cached avatar...';
             const cachedAvatar = JSON.parse(localStorage.getItem(AVATAR_CACHE_KEY));
             if (cachedAvatar && cachedAvatar.url === client.avatarUrl) {
                 console.log("Loading avatar from cache.");
+                loadingStatus.textContent = 'Loading avatar from local cache...';
                 userAvatarImg = await loadImageFromDataURL(cachedAvatar.dataUrl);
             } else {
                 console.log("Fetching new avatar.");
+                loadingStatus.textContent = 'Fetching your avatar...';
                 const fetchedImg = await loadImageWithProxies(client.avatarUrl);
                 if (fetchedImg) {
                     userAvatarImg = fetchedImg;
+                    loadingStatus.textContent = 'Caching avatar for next time...';
                     const dataUrl = imageToDataURL(userAvatarImg);
                     localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify({ url: client.avatarUrl, dataUrl }));
                     console.log("Avatar cached.");
@@ -59,17 +66,28 @@ async function preload() {
 
             if (!userAvatarImg) {
                 avatarLoadFailed = true;
+                loadingStatus.textContent = 'Your avatar could not be loaded.';
                 alert("Your avatar could not be loaded. Please try again or check your profile picture.");
+            } else {
+                loadingStatus.textContent = 'Avatar loaded successfully!';
             }
         } else {
             avatarLoadFailed = true;
+            loadingStatus.textContent = 'No profile picture found.';
             alert("You don't seem to have a profile picture. Please set one to play.");
         }
     } catch (e) {
         avatarLoadFailed = true;
         console.error("Websim socket failed to initialize, cannot fetch avatar:", e);
+        loadingStatus.textContent = 'Could not connect to get your profile.';
         alert("Could not connect to get your profile. Please refresh and try again.");
     }
+    
+    if (!avatarLoadFailed) {
+        // give a small delay for user to read final message
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
     uiState('start');
 }
 
